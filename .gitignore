@@ -1,0 +1,19 @@
+# .NET
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userprefs
+
+# Node / Vite
+client/node_modules/
+client/.vite/
+client/dist/
+client/*.local
+client/.env*
+
+# Misc
+*.DS_Store
+Thumbs.db
+

@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  db:
+    image: mysql:8.3
+    command: --default-authentication-plugin=mysql_native_password --mysqlx=0
+    environment:
+      MYSQL_ROOT_PASSWORD: supersecretroot
+      MYSQL_DATABASE: emo_db
+      MYSQL_USER: emo
+      MYSQL_PASSWORD: emo_password
+    volumes:
+      - db_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  api:
+    build:
+      context: ./server
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Default: Server=db;Port=3306;Database=emo_db;User Id=emo;Password=emo_password;SslMode=None;
+      Jwt__Issuer: EmoApi
+      Jwt__Audience: EmoClient
+      Jwt__Secret: CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "5193:8080"
+
+  client:
+    build:
+      context: ./client
+      args:
+        VITE_API_URL: http://api:8080
+    depends_on:
+      api:
+        condition: service_started
+    ports:
+      - "5173:80"
+
+volumes:
+  db_data:

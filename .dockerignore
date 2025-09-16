@@ -1,0 +1,8 @@
+.git
+**/bin/
+**/obj/
+client/node_modules/
+client/dist/
+client/.env*
+server/bin/
+server/obj/
