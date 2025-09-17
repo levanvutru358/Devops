@@ -6,13 +6,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Restore dependencies first
+# Restore dependencies first (cache friendly)
 COPY EmoApi.csproj ./
 RUN dotnet restore EmoApi.csproj
 
-# Copy the rest of the source
+# Copy the rest of the source and publish
 COPY . .
-RUN dotnet publish EmoApi.csproj -c Release -o /app/publish
+RUN dotnet publish EmoApi.csproj -c Release -o /app/publish --no-restore
 
 ###########
 # RUNTIME

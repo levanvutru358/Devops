@@ -1,147 +1,119 @@
-name: Webshop CI/CD
+name: Deploy
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
-  group: webshop-deploy-${{ github.ref }}
+  group: deploy-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  build-and-deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+env:
+  CLIENT_DIR: client
+  SERVER_PROJECT: server/EmoApi.csproj
+  API_IMAGE: ${{ format('{0}/webshop-api', secrets.DOCKER_USERNAME) }}
+  CLIENT_IMAGE: ${{ format('{0}/webshop-client', secrets.DOCKER_USERNAME) }}
 
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ${{ env.CLIENT_DIR }}/package-lock.json
+
+      - name: Install client dependencies
+        working-directory: ${{ env.CLIENT_DIR }}
+        run: npm ci
+
+      - name: Build client bundle
+        working-directory: ${{ env.CLIENT_DIR }}
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        run: npm run build
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore server dependencies
+        run: dotnet restore ${{ env.SERVER_PROJECT }}
+
+      - name: Build server
+        run: dotnet build ${{ env.SERVER_PROJECT }} --configuration Release --no-restore
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      VITE_API_URL: ${{ secrets.VITE_API_URL }} # optional cho client
-
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
     steps:
-      # 1) Lấy code
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # 2) Buildx để build & push multi-platform
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          install: true
 
-      # 3) Login Docker Hub
-      - name: Login to Docker Hub
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
 
-      # 4) Build & push API image (.NET)
-      - name: Build & push API image
-        run: |
-          SHORT_SHA=${GITHUB_SHA::7}
-          docker buildx build \
-            --platform linux/amd64 \
-            -t $DOCKER_USERNAME/webshop-api:latest \
-            -t $DOCKER_USERNAME/webshop-api:$SHORT_SHA \
-            -f server/Dockerfile \
-            server \
-            --push
-
-      # 5) Build & push Client image (Vite -> Nginx)
-      - name: Build & push Client image
-        run: |
-          SHORT_SHA=${GITHUB_SHA::7}
-          docker buildx build \
-            --platform linux/amd64 \
-            --build-arg VITE_API_URL="${VITE_API_URL}" \
-            -t $DOCKER_USERNAME/webshop-client:latest \
-            -t $DOCKER_USERNAME/webshop-client:$SHORT_SHA \
-            -f client/Dockerfile \
-            client \
-            --push
-
-      # 6) Cài docker-compose CLI trên runner (để kiểm tra nếu cần)
-      - name: Install Docker Compose CLI
-        run: |
-          sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.0/docker-compose-$(uname -s)-$(uname -m)" \
-            -o /usr/local/bin/docker-compose
-          sudo chmod +x /usr/local/bin/docker-compose
-          docker-compose version
-
-      # 7) Validate secrets trước khi SSH
-      - name: Validate deploy secrets
-        run: |
-          [ -z "${{ secrets.SERVER_HOST }}" ] && { echo "SERVER_HOST empty"; exit 1; }
-          [ -z "${{ secrets.SERVER_USERNAME }}" ] && { echo "SERVER_USERNAME empty"; exit 1; }
-          [ -z "${{ secrets.SERVER_SSH_KEY }}" ] && { echo "SERVER_SSH_KEY empty"; exit 1; }
-          [ -z "${{ secrets.DOCKER_COMPOSE_FILE }}" ] && { echo "DOCKER_COMPOSE_FILE empty"; exit 1; }
-          # DB_CONNECTION_STRING optional nếu bạn hardcode trong compose
-
-      # 8) SSH deploy lên EC2 vào ~/Webshop
-      - name: Deploy to production server
-        uses: appleboy/ssh-action@v1.0.3
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: 22
+          context: ./server
+          file: ./server/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.API_IMAGE }}:latest
+            ${{ env.API_IMAGE }}:${{ github.sha }}
+
+      - name: Build and push Client image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./client
+          file: ./client/Dockerfile
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            VITE_API_URL=${{ secrets.VITE_API_URL || 'http://localhost:5193' }}
+          tags: |
+            ${{ env.CLIENT_IMAGE }}:latest
+            ${{ env.CLIENT_IMAGE }}:${{ github.sha }}
+
+  deploy:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
           script: |
-            set -e
-
-            # Thư mục deploy
-            mkdir -p ~/Webshop
-            cd ~/Webshop
-
-            # Ghi docker-compose.yml từ secret (giữ nguyên xuống dòng)
-            cat > docker-compose.yml <<'EOF'
-            ${{ secrets.DOCKER_COMPOSE_FILE }}
-            EOF
-
-            # .env để truyền biến cho compose (nếu compose dùng ${...})
-            cat > .env <<EOF
-            DOCKER_USERNAME=${DOCKER_USERNAME}
-            DB_CONNECTION_STRING=${DB_CONNECTION_STRING}
-            EOF
-
-            # Kiểm tra file compose
-            if command -v docker-compose >/dev/null 2>&1; then
-              DC="docker-compose"
-            else
-              DC="docker compose"
-            fi
-            $DC config >/dev/null
-
-            # Login Docker Hub + pull image mới
-            echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
-            $DC pull
-
-            # Dừng & xoá container cũ theo tên nếu có
-            docker ps -a --filter "name=webshop-backend-net" --format '{{.ID}}' | xargs -r docker stop || true
-            docker ps -a --filter "name=webshop-backend-net" --format '{{.ID}}' | xargs -r docker rm || true
-            docker ps -a --filter "name=webshop-client" --format '{{.ID}}' | xargs -r docker stop || true
-            docker ps -a --filter "name=webshop-client" --format '{{.ID}}' | xargs -r docker rm || true
-
-            # Lên stack
-            $DC up -d --remove-orphans
-
-            # Dọn ảnh cũ
-            docker image prune -f || true
-
-            # Chờ service 'Up' tối đa 60s
-            timeout 60 bash -c '
-              until $DC ps | grep -q "Up"; do
-                echo "Waiting for containers to start...";
-                sleep 5;
-              done
-            '
-
-            echo "[INFO] Deploy done to ~/Webshop"
+            set -euo pipefail
+            cd ${{ secrets.DEPLOY_PATH }}
+            git fetch --all --prune
+            git reset --hard origin/main
+            printf '%s\n' '${{ secrets.DOCKER_PASSWORD }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin
+            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }} docker compose pull
+            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }} docker compose down --remove-orphans
+            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }} docker compose up -d
+            docker image prune -f
+            docker logout
