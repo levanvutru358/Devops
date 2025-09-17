@@ -99,14 +99,33 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
     steps:
-      - name: Validate deploy secrets (fail early)
+      - name: Validate deploy secrets (safe for multiline)
+        shell: bash
         run: |
-          [ -z "${{ secrets.SSH_HOST }}" ] && { echo "SSH_HOST empty"; exit 1; }
-          [ -z "${{ secrets.SSH_USER }}" ] && { echo "SSH_USER empty"; exit 1; }
-          [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] && { echo "SSH_PRIVATE_KEY empty"; exit 1; }
-          [ -z "${{ secrets.DOCKER_USERNAME }}" ] && { echo "DOCKER_USERNAME empty"; exit 1; }
-          [ -z "${{ secrets.DOCKER_PASSWORD }}" ] && { echo "DOCKER_PASSWORD empty"; exit 1; }
-          [ -z "${{ secrets.DOCKER_COMPOSE_FILE }}" ] && { echo "DOCKER_COMPOSE_FILE empty"; exit 1; }
+          # Gán vào biến trước (an toàn với multiline)
+          SSH_HOST="${{ secrets.SSH_HOST }}"
+          SSH_USER="${{ secrets.SSH_USER }}"
+          SSH_PRIVATE_KEY="${{ secrets.SSH_PRIVATE_KEY }}"
+          DOCKER_USERNAME="${{ secrets.DOCKER_USERNAME }}"
+          DOCKER_PASSWORD="${{ secrets.DOCKER_PASSWORD }}"
+          DOCKER_COMPOSE_FILE="${{ secrets.DOCKER_COMPOSE_FILE }}"
+
+          # In độ dài (không lộ nội dung)
+          echo "len(SSH_HOST)=$(printf %s "$SSH_HOST" | wc -c)"
+          echo "len(SSH_USER)=$(printf %s "$SSH_USER" | wc -c)"
+          echo "len(SSH_PRIVATE_KEY)=$(printf %s "$SSH_PRIVATE_KEY" | wc -c)"
+          echo "len(DOCKER_USERNAME)=$(printf %s "$DOCKER_USERNAME" | wc -c)"
+          echo "len(DOCKER_PASSWORD)=$(printf %s "$DOCKER_PASSWORD" | wc -c)"
+          echo "len(DOCKER_COMPOSE_FILE)=$(printf %s "$DOCKER_COMPOSE_FILE" | wc -c)"
+
+          # Kiểm tra rỗng bằng [[ ]] (không bị word-splitting)
+          [[ -z "${SSH_HOST}" ]] && { echo "SSH_HOST empty"; exit 1; }
+          [[ -z "${SSH_USER}" ]] && { echo "SSH_USER empty"; exit 1; }
+          [[ -z "${SSH_PRIVATE_KEY}" ]] && { echo "SSH_PRIVATE_KEY empty"; exit 1; }
+          [[ -z "${DOCKER_USERNAME}" ]] && { echo "DOCKER_USERNAME empty"; exit 1; }
+          [[ -z "${DOCKER_PASSWORD}" ]] && { echo "DOCKER_PASSWORD empty"; exit 1; }
+          [[ -z "${DOCKER_COMPOSE_FILE}" ]] && { echo "DOCKER_COMPOSE_FILE empty"; exit 1; }
+
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -117,51 +136,34 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          # port: ${{ secrets.SSH_PORT }}   # nếu SSH port != 22 thì thêm dòng này
+          # port: ${{ secrets.SSH_PORT }}   # thêm nếu bạn đổi port SSH
           command_timeout: 10m
           script: |
             set -e
 
-            # 1) Tạo/thay đổi thư mục deploy
             DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '~\/Webshop' }}"
             mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
-            # 2) Ghi docker-compose.yml từ secret (giữ nguyên xuống dòng)
+            # Ghi compose từ secret (quote 'EOF' để không interpolate)
             cat > docker-compose.yml <<'EOF'
             ${{ secrets.DOCKER_COMPOSE_FILE }}
             EOF
-            echo "[INFO] docker-compose.yml updated at $DEPLOY_DIR"
+            echo "[INFO] docker-compose.yml written."
 
-            # 3) (Tuỳ chọn) ghi .env nếu cần thêm biến (compose của bạn đã có default nên có thể bỏ qua)
-            # cat > .env <<EOF
-            # DOCKER_USERNAME=${DOCKER_USERNAME}
-            # MYSQL_ROOT_PASSWORD=supersecretroot
-            # MYSQL_DATABASE=emo_db
-            # MYSQL_USER=tru123
-            # MYSQL_PASSWORD=tru12345
-            # ASPNETCORE_ENVIRONMENT=Production
-            # JWT_ISSUER=EmoApi
-            # JWT_AUDIENCE=EmoClient
-            # JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567
-            # EOF
-
-            # 4) Chọn docker compose CLI (docker compose vs docker-compose)
+            # Chọn docker compose CLI
             if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi
 
-            # 5) Kiểm tra compose hợp lệ
+            # Validate
             $DC config >/dev/null
 
-            # 6) Login Docker Hub
+            # Login & pull
             echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
-
-            # 7) Pull image mới (truyền DOCKER_USERNAME qua env để resolve ${DOCKER_USERNAME} trong compose)
             DOCKER_USERNAME="${DOCKER_USERNAME}" $DC pull
 
-            # 8) Khởi động stack (remove orphans)
+            # Up (không cần down riêng; dùng --remove-orphans)
             DOCKER_USERNAME="${DOCKER_USERNAME}" $DC up -d --remove-orphans
 
-            # 9) Dọn ảnh cũ (không dùng)
             docker image prune -f || true
+            echo "[INFO] Deploy done."
 
-            echo "[INFO] Deploy finished."
