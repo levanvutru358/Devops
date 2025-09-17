@@ -94,26 +94,75 @@ jobs:
             ${{ env.CLIENT_IMAGE }}:latest
             ${{ env.CLIENT_IMAGE }}:${{ github.sha }}
 
-  deploy:
+    deploy:
     needs: publish
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
     steps:
+      - name: Validate deploy secrets (fail early)
+        run: |
+          [ -z "${{ secrets.SSH_HOST }}" ] && { echo "SSH_HOST empty"; exit 1; }
+          [ -z "${{ secrets.SSH_USER }}" ] && { echo "SSH_USER empty"; exit 1; }
+          [ -z "${{ secrets.SSH_PRIVATE_KEY }}" ] && { echo "SSH_PRIVATE_KEY empty"; exit 1; }
+          [ -z "${{ secrets.DOCKER_USERNAME }}" ] && { echo "DOCKER_USERNAME empty"; exit 1; }
+          [ -z "${{ secrets.DOCKER_PASSWORD }}" ] && { echo "DOCKER_PASSWORD empty"; exit 1; }
+          [ -z "${{ secrets.DOCKER_COMPOSE_FILE }}" ] && { echo "DOCKER_COMPOSE_FILE empty"; exit 1; }
+
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.0
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT || 22 }}
+          # port: ${{ secrets.SSH_PORT }}   # nếu SSH port != 22 thì thêm dòng này
+          command_timeout: 10m
           script: |
-            set -euo pipefail
-            cd ${{ secrets.DEPLOY_PATH }}
-            git fetch --all --prune
-            git reset --hard origin/main
-            printf '%s\n' '${{ secrets.DOCKER_PASSWORD }}' | docker login -u '${{ secrets.DOCKER_USERNAME }}' --password-stdin
-            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }} docker compose pull
-            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }} docker compose down --remove-orphans
-            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }} docker compose up -d
-            docker image prune -f
-            docker logout
+            set -e
+
+            # 1) Tạo/thay đổi thư mục deploy
+            DEPLOY_DIR="${{ secrets.DEPLOY_PATH || '~\/Webshop' }}"
+            mkdir -p "$DEPLOY_DIR"
+            cd "$DEPLOY_DIR"
+
+            # 2) Ghi docker-compose.yml từ secret (giữ nguyên xuống dòng)
+            cat > docker-compose.yml <<'EOF'
+            ${{ secrets.DOCKER_COMPOSE_FILE }}
+            EOF
+            echo "[INFO] docker-compose.yml updated at $DEPLOY_DIR"
+
+            # 3) (Tuỳ chọn) ghi .env nếu cần thêm biến (compose của bạn đã có default nên có thể bỏ qua)
+            # cat > .env <<EOF
+            # DOCKER_USERNAME=${DOCKER_USERNAME}
+            # MYSQL_ROOT_PASSWORD=supersecretroot
+            # MYSQL_DATABASE=emo_db
+            # MYSQL_USER=tru123
+            # MYSQL_PASSWORD=tru12345
+            # ASPNETCORE_ENVIRONMENT=Production
+            # JWT_ISSUER=EmoApi
+            # JWT_AUDIENCE=EmoClient
+            # JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567
+            # EOF
+
+            # 4) Chọn docker compose CLI (docker compose vs docker-compose)
+            if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi
+
+            # 5) Kiểm tra compose hợp lệ
+            $DC config >/dev/null
+
+            # 6) Login Docker Hub
+            echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
+
+            # 7) Pull image mới (truyền DOCKER_USERNAME qua env để resolve ${DOCKER_USERNAME} trong compose)
+            DOCKER_USERNAME="${DOCKER_USERNAME}" $DC pull
+
+            # 8) Khởi động stack (remove orphans)
+            DOCKER_USERNAME="${DOCKER_USERNAME}" $DC up -d --remove-orphans
+
+            # 9) Dọn ảnh cũ (không dùng)
+            docker image prune -f || true
+
+            echo "[INFO] Deploy finished."
+
