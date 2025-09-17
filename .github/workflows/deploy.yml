@@ -1,74 +1,37 @@
-name: Deploy
+name: CI/CD Pipeline
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+permissions:
+  contents: read
+  packages: write
 
 env:
-  CLIENT_DIR: client
-  SERVER_PROJECT: server/EmoApi.csproj
   API_IMAGE: ${{ format('{0}/webshop-api', secrets.DOCKER_USERNAME) }}
   CLIENT_IMAGE: ${{ format('{0}/webshop-client', secrets.DOCKER_USERNAME) }}
 
 jobs:
-  build:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout source code
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: ${{ env.CLIENT_DIR }}/package-lock.json
-
-      - name: Install client dependencies
-        working-directory: ${{ env.CLIENT_DIR }}
-        run: npm ci
-
-      - name: Build client bundle
-        working-directory: ${{ env.CLIENT_DIR }}
-        env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
-        run: npm run build
-
-      - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "9.0.x"
-
-      - name: Restore server dependencies
-        run: dotnet restore ${{ env.SERVER_PROJECT }}
-
-      - name: Build server
-        run: dotnet build ${{ env.SERVER_PROJECT }} --configuration Release --no-restore
-
-  publish:
-    runs-on: ubuntu-latest
-    needs: build
-    env:
-      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ env.DOCKER_USERNAME }}
-          password: ${{ env.DOCKER_PASSWORD }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
+      # Build & push backend (API)
       - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
@@ -80,6 +43,7 @@ jobs:
             ${{ env.API_IMAGE }}:latest
             ${{ env.API_IMAGE }}:${{ github.sha }}
 
+      # Build & push frontend (Client)
       - name: Build and push Client image
         uses: docker/build-push-action@v5
         with:
@@ -94,50 +58,51 @@ jobs:
             ${{ env.CLIENT_IMAGE }}:${{ github.sha }}
 
   deploy:
-    needs: publish
+    needs: build-and-publish
     runs-on: ubuntu-latest
-    if: ${{ github.ref == 'refs/heads/main' }}
     steps:
-      - name: Validate deploy secrets (safe for multiline, no expansion)
+      - name: Validate deploy secrets (no expansion)
         shell: bash
         run: |
           set -euo pipefail
-          # Dùng SINGLE QUOTES để KHÔNG expand ${VAR} bên trong secret
-          SSH_HOST='${{ secrets.SSH_HOST }}'
-          SSH_USER='${{ secrets.SSH_USER }}'
-          SSH_PRIVATE_KEY='${{ secrets.SSH_PRIVATE_KEY }}'
+          # Dùng SINGLE QUOTES để KHÔNG expand ${VAR} bên trong secret multiline
+          SERVER_HOST='${{ secrets.SERVER_HOST }}'
+          SERVER_USERNAME='${{ secrets.SERVER_USERNAME }}'
+          SERVER_SSH_KEY='${{ secrets.SERVER_SSH_KEY }}'
           DOCKER_USERNAME='${{ secrets.DOCKER_USERNAME }}'
           DOCKER_PASSWORD='${{ secrets.DOCKER_PASSWORD }}'
           DOCKER_COMPOSE_FILE='${{ secrets.DOCKER_COMPOSE_FILE }}'
+          DEPLOY_PATH='${{ secrets.DEPLOY_PATH }}' # có thể rỗng
 
-          echo "len(SSH_HOST)=$(printf %s "$SSH_HOST" | wc -c)"
-          echo "len(SSH_USER)=$(printf %s "$SSH_USER" | wc -c)"
-          echo "len(SSH_PRIVATE_KEY)=$(printf %s "$SSH_PRIVATE_KEY" | wc -c)"
+          echo "len(SERVER_HOST)=$(printf %s "$SERVER_HOST" | wc -c)"
+          echo "len(SERVER_USERNAME)=$(printf %s "$SERVER_USERNAME" | wc -c)"
+          echo "len(SERVER_SSH_KEY)=$(printf %s "$SERVER_SSH_KEY" | wc -c)"
           echo "len(DOCKER_USERNAME)=$(printf %s "$DOCKER_USERNAME" | wc -c)"
           echo "len(DOCKER_PASSWORD)=$(printf %s "$DOCKER_PASSWORD" | wc -c)"
           echo "len(DOCKER_COMPOSE_FILE)=$(printf %s "$DOCKER_COMPOSE_FILE" | wc -c)"
+          echo "len(DEPLOY_PATH)=$(printf %s "$DEPLOY_PATH" | wc -c)"
 
-          [[ -z "$SSH_HOST" ]] && { echo "SSH_HOST empty"; exit 1; }
-          [[ -z "$SSH_USER" ]] && { echo "SSH_USER empty"; exit 1; }
-          [[ -z "$SSH_PRIVATE_KEY" ]] && { echo "SSH_PRIVATE_KEY empty"; exit 1; }
+          [[ -z "$SERVER_HOST" ]] && { echo "SERVER_HOST empty"; exit 1; }
+          [[ -z "$SERVER_USERNAME" ]] && { echo "SERVER_USERNAME empty"; exit 1; }
+          [[ -z "$SERVER_SSH_KEY" ]] && { echo "SERVER_SSH_KEY empty"; exit 1; }
           [[ -z "$DOCKER_USERNAME" ]] && { echo "DOCKER_USERNAME empty"; exit 1; }
           [[ -z "$DOCKER_PASSWORD" ]] && { echo "DOCKER_PASSWORD empty"; exit 1; }
           [[ -z "$DOCKER_COMPOSE_FILE" ]] && { echo "DOCKER_COMPOSE_FILE empty"; exit 1; }
 
-      - name: Deploy via SSH
+      - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 10m
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 15m
           script: |
             set -euo pipefail
 
-            # Fallback DEPLOY_PATH
+            # Fallback DEPLOY_PATH nếu rỗng -> $HOME/Webshop
             DEPLOY_DIR="${{ secrets.DEPLOY_PATH }}"
             if [ -z "${DEPLOY_DIR}" ]; then
               DEPLOY_DIR="$HOME/Webshop"
@@ -146,24 +111,43 @@ jobs:
             mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
-            # Ghi compose từ secret, dùng quoted heredoc để KHÔNG expand
+            # Ghi docker-compose.yml từ secret, dùng quoted heredoc để KHÔNG expand biến
             cat > docker-compose.yml <<'EOF'
             ${{ secrets.DOCKER_COMPOSE_FILE }}
             EOF
             echo "[INFO] docker-compose.yml written."
 
             # Chọn docker compose CLI
-            if command -v docker-compose >/dev/null 2>&1; then DC="docker-compose"; else DC="docker compose"; fi
+            if command -v docker-compose >/dev/null 2>&1; then
+              DC="docker-compose"
+            else
+              DC="docker compose"
+            fi
 
-            # Validate
+            # Kiểm tra syntax compose
             $DC config >/dev/null
 
             # Login & pull
             echo "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin
             DOCKER_USERNAME="${DOCKER_USERNAME}" $DC pull
 
-            # Up
+            # Up (remove orphans để dọn dịch vụ cũ)
             DOCKER_USERNAME="${DOCKER_USERNAME}" $DC up -d --remove-orphans
 
+            # Prune ảnh cũ
             docker image prune -f || true
+
+            # Đợi dịch vụ lên (tối đa 60s)
+            SECS=0
+            until $DC ps | grep -q "Up"; do
+              echo "Waiting for containers to start..."
+              sleep 5
+              SECS=$((SECS+5))
+              if [ $SECS -ge 60 ]; then
+                echo "Timeout waiting for containers."
+                $DC ps
+                exit 1
+              fi
+            done
+
             echo "[INFO] Deploy done."
