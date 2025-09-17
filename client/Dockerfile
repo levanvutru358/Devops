@@ -6,11 +6,11 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Dependency install layer for caching
+# Cache deps
 COPY package*.json ./
 RUN npm ci
 
-# Copy source and build
+# Copy source & build
 COPY . .
 ARG VITE_API_URL=http://localhost:5193
 ENV VITE_API_URL=${VITE_API_URL}

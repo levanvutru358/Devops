@@ -23,8 +23,6 @@ services:
   api:
     image: ${DOCKER_USERNAME}/webshop-api:latest
     container_name: webshop-backend-net
-    env_file:
-      - .env
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Default: ${DB_CONNECTION_STRING:-Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;}
