@@ -7,44 +7,42 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: supersecretroot
       MYSQL_DATABASE: emo_db
-      MYSQL_USER: emo
-      MYSQL_PASSWORD: emo_password
+      MYSQL_USER: tru123
+      MYSQL_PASSWORD: tru12345
     volumes:
       - db_data:/var/lib/mysql
-    ports:
-      - "3307:3306"
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+    restart: always
 
   api:
-    build:
-      context: ./server
+    image: ${DOCKER_USERNAME}/webshop-api:latest
+    container_name: webshop-backend-net
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Default: Server=db;Port=3306;Database=emo_db;User Id=emo;Password=emo_password;SslMode=None;
+      ConnectionStrings__Default: ${DB_CONNECTION_STRING}
       Jwt__Issuer: EmoApi
       Jwt__Audience: EmoClient
       Jwt__Secret: CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     ports:
       - "5193:8080"
+    restart: always
+    # healthcheck (nếu image có curl và API có /health):
+    # healthcheck:
+    #   test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 10s
 
   client:
-    build:
-      context: ./client
-      args:
-        VITE_API_URL: http://api:8080
+    image: ${DOCKER_USERNAME}/webshop-client:latest
+    container_name: webshop-client
     depends_on:
-      api:
-        condition: service_started
+      - api
     ports:
       - "5173:80"
+    restart: always
 
 volumes:
   db_data:
