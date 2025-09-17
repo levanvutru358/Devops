@@ -94,7 +94,7 @@ jobs:
             ${{ env.CLIENT_IMAGE }}:latest
             ${{ env.CLIENT_IMAGE }}:${{ github.sha }}
 
-    deploy:
+  deploy:
     needs: publish
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}
@@ -165,4 +165,3 @@ jobs:
             docker image prune -f || true
 
             echo "[INFO] Deploy finished."
-
