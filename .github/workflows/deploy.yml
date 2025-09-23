@@ -65,6 +65,7 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
         with:
+          envs: DOCKER_USERNAME,DOCKER_PASSWORD
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USERNAME }}
           key: ${{ secrets.SERVER_SSH_KEY }}
@@ -72,8 +73,15 @@ jobs:
           script: |
             set -euo pipefail
 
+            # Validate required envs (forwarded via with.envs)
+            if [ -z "${DOCKER_USERNAME:-}" ] || [ -z "${DOCKER_PASSWORD:-}" ]; then
+              echo "[ERROR] DOCKER_USERNAME/DOCKER_PASSWORD are not set on remote host."
+              echo "        Ensure GitHub secrets exist and are forwarded via 'with.envs'."
+              exit 1
+            fi
+
             # Đi tới thư mục dự án (sửa lại nếu bạn dùng path khác)
-            DEPLOY_DIR="${HOME}/LearnKing"
+            DEPLOY_DIR="${HOME}/Webshop"
             mkdir -p "$DEPLOY_DIR"
             cd "$DEPLOY_DIR"
 
@@ -93,10 +101,10 @@ jobs:
               DC="docker compose"
             fi
 
-            # Verify docker-compose file (syntax)
-            if ! $DC config >/dev/null; then
+            # Verify docker-compose file (syntax) with variable substitution
+            if ! DOCKER_USERNAME="${DOCKER_USERNAME}" $DC config >/dev/null; then
               echo "Error in Docker Compose file:"
-              $DC config || true
+              DOCKER_USERNAME="${DOCKER_USERNAME}" $DC config || true
               exit 1
             fi
 
@@ -132,6 +140,4 @@ jobs:
         run: |
           docker logout || true
           rm -rf /tmp/.buildx-cache || true
-
-
 
