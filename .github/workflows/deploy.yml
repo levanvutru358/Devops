@@ -51,6 +51,7 @@ jobs:
           DOCKER_BUILDKIT: 1
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DB_CONNECTION_STRING: ${{ secrets.DB_CONNECTION_STRING }}
+          VITE_API_URL: ${{ secrets.CLIENT_API_URL }}
         run: |
           set -euo pipefail
           # Build images với BuildKit + inline cache (nếu Dockerfile hỗ trợ)
@@ -131,3 +132,6 @@ jobs:
         run: |
           docker logout || true
           rm -rf /tmp/.buildx-cache || true
+
+
+
