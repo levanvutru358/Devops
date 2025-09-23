@@ -1,25 +1,6 @@
 version: "3.9"
 
 services:
-  db:
-    image: mysql:8.3
-    container_name: webshop-mysql
-    command: --default-authentication-plugin=mysql_native_password --mysqlx=0
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-supersecretroot}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-emo_db}
-      MYSQL_USER: ${MYSQL_USER:-tru123}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tru12345}
-    volumes:
-      - db_data:/var/lib/mysql
-    restart: always
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$MYSQL_USER -p$MYSQL_PASSWORD || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-
   api:
     image: ${DOCKER_USERNAME}/webshop-api:latest
     build:
@@ -32,9 +13,6 @@ services:
       Jwt__Issuer: ${JWT_ISSUER:-EmoApi}
       Jwt__Audience: ${JWT_AUDIENCE:-EmoClient}
       Jwt__Secret: ${JWT_SECRET:-CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567}
-    depends_on:
-      db:
-        condition: service_healthy
     ports:
       - "5193:8080"
     restart: always
@@ -53,6 +31,3 @@ services:
     ports:
       - "5173:80"
     restart: always
-
-volumes:
-  db_data:
