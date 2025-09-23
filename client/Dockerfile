@@ -6,11 +6,11 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
-# Cache deps
+# Install dependencies (cached)
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
-# Copy source & build
+# Copy source and build
 COPY . .
 ARG VITE_API_URL=http://localhost:5193
 ENV VITE_API_URL=${VITE_API_URL}
@@ -20,5 +20,12 @@ RUN npm run build
 # RUNTIME
 ###########
 FROM nginx:1.27-alpine AS final
+
+# Replace default server config with SPA-friendly config
+RUN rm -f /etc/nginx/conf.d/default.conf
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+
+# Static site
 COPY --from=build /app/dist /usr/share/nginx/html
+
 EXPOSE 80

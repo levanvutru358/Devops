@@ -56,7 +56,7 @@ jobs:
           # Build images với BuildKit + inline cache (nếu Dockerfile hỗ trợ)
           docker-compose -f docker-compose.yml build --build-arg BUILDKIT_INLINE_CACHE=1
           # Push images (ví dụ service "backend"; thêm service khác nếu cần)
-          docker-compose -f docker-compose.yml push backend
+          docker-compose -f docker-compose.yml push api client
 
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3

@@ -22,6 +22,9 @@ services:
 
   api:
     image: ${DOCKER_USERNAME}/webshop-api:latest
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     container_name: webshop-backend-net
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
@@ -38,6 +41,11 @@ services:
 
   client:
     image: ${DOCKER_USERNAME}/webshop-client:latest
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5193}
     container_name: webshop-client
     depends_on:
       api:
