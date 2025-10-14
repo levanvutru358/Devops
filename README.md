@@ -16,6 +16,7 @@ Một skeleton dự án full‑stack: ASP.NET Core Web API (backend) và React +
 dotnet run --project server
 ```
 
+hello
 Mặc định chạy tại:
 
 - HTTP: `http://localhost:5193`
@@ -32,14 +33,14 @@ Các endpoint mẫu:
 
 ### Frontend (React + Vite)
 
-1) Cài dependencies:
+1. Cài dependencies:
 
 ```bash
 cd client
 npm install
 ```
 
-2) Chạy dev server:
+2. Chạy dev server:
 
 ```bash
 npm run dev
@@ -60,6 +61,7 @@ VITE_API_URL=http://localhost:5193
 - Cart: Xem/cập nhật/xóa item; đặt hàng với thông tin giao hàng cơ bản.
 
 Các file chính:
+
 - `client/src/api.js:1` — API client (auth/catalog/cart/orders)
 - `client/src/App.jsx:1` — Router + các trang (Home, ProductDetail, Cart, Checkout, Login, Register, Orders)
 
