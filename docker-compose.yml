@@ -1,39 +1,6 @@
 version: "3.9"
 
 services:
-  db:
-    image: mysql:8.0
-    container_name: webshop-db
-    environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: emo_db
-      MYSQL_USER: tru123
-      MYSQL_PASSWORD: tru12345
-    ports:
-      - "3307:3306" # mở cổng ngoài để kết nối bằng DBeaver/Workbench nếu cần
-    volumes:
-      - db_data:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    restart: always
-
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin:latest
-    container_name: webshop-phpmyadmin
-    environment:
-      PMA_HOST: db
-      PMA_PORT: 3306
-      UPLOAD_LIMIT: 256M
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "8081:80"   # giao diện web quản trị DB
-    restart: always
-
   api:
     image: ${DOCKER_USERNAME}/webshop-api:latest
     build:
@@ -48,9 +15,6 @@ services:
       Jwt__Secret: ${JWT_SECRET:-CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567}
     ports:
       - "5193:8080"
-    depends_on:
-      db:
-        condition: service_healthy
     restart: always
 
   client:
@@ -67,6 +31,3 @@ services:
     ports:
       - "5173:80"
     restart: always
-
-volumes:
-  db_data:
