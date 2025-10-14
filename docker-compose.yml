@@ -10,9 +10,28 @@ services:
       MYSQL_USER: tru123
       MYSQL_PASSWORD: tru12345
     ports:
-      - "3307:3306"   # mở cổng 3307 ngoài host để truy cập từ DBeaver / phpMyAdmin
+      - "3307:3306" # mở cổng ngoài để kết nối bằng DBeaver/Workbench nếu cần
     volumes:
       - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: always
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: webshop-phpmyadmin
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      UPLOAD_LIMIT: 256M
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8081:80"   # giao diện web quản trị DB
     restart: always
 
   api:
@@ -30,7 +49,8 @@ services:
     ports:
       - "5193:8080"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     restart: always
 
   client:
@@ -42,7 +62,8 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:5193}
     container_name: webshop-client
     depends_on:
-      - api
+      api:
+        condition: service_started
     ports:
       - "5173:80"
     restart: always
