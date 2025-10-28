@@ -65,7 +65,7 @@ pipeline {
       }
       post {
         always {
-          publishTestResults testResultsPattern: 'server/TestResults/*.trx'
+          junit testResultsPattern: 'server/TestResults/*.trx'
         }
       }
     }
