@@ -95,13 +95,25 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
             echo "=== Pushing to Docker Hub ==="
-            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-            docker push $DOCKER_USER/webshop-api:$BUILD_NUMBER
-            docker push $DOCKER_USER/webshop-api:latest
-            docker push $DOCKER_USER/webshop-client:$BUILD_NUMBER
-            docker push $DOCKER_USER/webshop-client:latest
-            docker logout
-            echo "Images pushed successfully!"
+            echo "Username: $DOCKER_USER"
+            echo "Attempting Docker Hub login..."
+            
+            if echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin; then
+              echo "✅ Docker Hub login successful!"
+              echo "Pushing API image..."
+              docker push $DOCKER_USER/webshop-api:$BUILD_NUMBER
+              docker push $DOCKER_USER/webshop-api:latest
+              echo "Pushing Client image..."
+              docker push $DOCKER_USER/webshop-client:$BUILD_NUMBER
+              docker push $DOCKER_USER/webshop-client:latest
+              docker logout
+              echo "✅ Images pushed successfully!"
+            else
+              echo "❌ Docker Hub login failed!"
+              echo "Please check your Docker Hub credentials in Jenkins"
+              echo "Credential ID: dockerhub-cred"
+              exit 1
+            fi
           '''
         }
       }
@@ -122,12 +134,18 @@ pipeline {
                 echo 'JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567' >> .env &&
                 echo 'ASPNETCORE_ENVIRONMENT=Production' >> .env &&
                 echo 'VITE_API_URL=http://$SERVER_HOST:5193' >> .env &&
-                echo '$DOCKER_PASS' | docker login -u $DOCKER_USER --password-stdin &&
-                docker compose --env-file .env pull &&
-                docker compose --env-file .env down &&
-                docker compose --env-file .env up -d &&
-                docker image prune -f &&
-                echo 'Deployment completed successfully!'
+                echo 'Logging into Docker Hub on server...' &&
+                if echo '$DOCKER_PASS' | docker login -u $DOCKER_USER --password-stdin; then
+                  echo 'Docker Hub login successful on server' &&
+                  docker compose --env-file .env pull &&
+                  docker compose --env-file .env down &&
+                  docker compose --env-file .env up -d &&
+                  docker image prune -f &&
+                  echo 'Deployment completed successfully!'
+                else
+                  echo 'Docker Hub login failed on server' &&
+                  exit 1
+                fi
               "
             '''
           }
