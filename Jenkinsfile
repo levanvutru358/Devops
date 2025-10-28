@@ -33,8 +33,10 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
                     usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                    
-                    sh "docker build -t docker.io/$DOCKER_USER/$IMAGE_NAME:latest ."
+                    // Build from the server directory where the Dockerfile exists
+                    dir('server') {
+                        sh "docker build -t docker.io/$DOCKER_USER/$IMAGE_NAME:latest ."
+                    }
                 }
             }
         }
