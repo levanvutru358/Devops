@@ -1,9 +1,31 @@
-version: "3.9"
-
 services:
+  db:
+    image: mysql:8.0
+    container_name: emo-mysql-db
+    environment:
+      MYSQL_DATABASE: emo_db
+      MYSQL_USER: tru123
+      MYSQL_PASSWORD: tru12345
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - emo-network
+
   api:
     image: ${DOCKER_USERNAME}/webshop-api:latest
     container_name: emo-backend-api
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ASPNETCORE_URLS: http://+:8080
@@ -44,3 +66,6 @@ services:
 networks:
   emo-network:
     driver: bridge
+
+volumes:
+  mysql_data:
