@@ -138,7 +138,8 @@ echo "JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567" >> .env
 echo "ASPNETCORE_ENVIRONMENT=Production" >> .env
 echo "VITE_API_URL=http://47.128.79.251:5193" >> .env
 echo "Logging into Docker Hub on server..."
-if echo "'$DOCKER_PASS'" | docker login -u '$DOCKER_USER' --password-stdin >/dev/null 2>&1; then
+echo "Username: '$DOCKER_USER'"
+if echo "'$DOCKER_PASS'" | docker login -u '$DOCKER_USER' --password-stdin; then
   echo "Docker Hub login successful on server"
   docker compose --env-file .env pull
   docker compose --env-file .env down
@@ -147,6 +148,9 @@ if echo "'$DOCKER_PASS'" | docker login -u '$DOCKER_USER' --password-stdin >/dev
   echo "Deployment completed successfully!"
 else
   echo "Docker Hub login failed on server"
+  echo "Please check Docker Hub credentials"
+  echo "Username: '$DOCKER_USER'"
+  echo "Make sure the password/token is correct"
   exit 1
 fi
 EOF
