@@ -126,51 +126,60 @@ pipeline {
           sshUserPrivateKey(credentialsId: 'server-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
         ]) {
           sh '''
+            set -e
             echo "=== Deploying to Server ==="
-            
-            # Create a temporary script to avoid shell issues
-            cat > deploy.sh << 'EOF'
-#!/bin/bash
-cd ~/project || mkdir -p ~/project && cd ~/project
-echo "DOCKER_USERNAME='$DOCKER_USER'" > .env
-echo "DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;" >> .env
-echo "JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567" >> .env
-echo "ASPNETCORE_ENVIRONMENT=Production" >> .env
-echo "VITE_API_URL=http://47.128.79.251:5193" >> .env
-echo "Logging into Docker Hub on server..."
-echo "Username: '$DOCKER_USER'"
-if echo "'$DOCKER_PASS'" | docker login -u '$DOCKER_USER' --password-stdin; then
-  echo "Docker Hub login successful on server"
-  docker compose --env-file .env pull
-  docker compose --env-file .env down
-  docker compose --env-file .env up -d
-  docker image prune -f
-  echo "Deployment completed successfully!"
-else
-  echo "Docker Hub login failed on server"
-  echo "Please check Docker Hub credentials"
-  echo "Username: '$DOCKER_USER'"
-  echo "Make sure the password/token is correct"
-  exit 1
-fi
-EOF
-            
-            echo "Copying files to server..."
-            # Create project directory first
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "mkdir -p ~/project"
-            
-            echo "Using SSH pipe method to avoid shell issues..."
-            # Copy docker-compose.yml
-            cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/docker-compose.yml"
-            
-            # Copy deployment script
-            cat deploy.sh | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/deploy.sh"
-            
-            echo "Running deployment script on server..."
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "chmod +x ~/project/deploy.sh && DOCKER_USER='$DOCKER_USER' DOCKER_PASS='$DOCKER_PASS' ~/project/deploy.sh"
-            
-            # Cleanup
-            rm -f deploy.sh
+
+            # Tạo thư mục project trên server
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "mkdir -p ~/project"
+
+            # Copy docker-compose.yml (không chèn secret vào file)
+            cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"
+
+            # Tạo deploy.sh trên server: here-doc có nháy đơn để chặn expand phía Jenkins,
+            # nhưng BÊN TRONG script luôn dùng double-quote để biến được expand lúc runtime.
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/deploy.sh" <<'EOF'
+            #!/usr/bin/env bash
+            set -euo pipefail
+
+            cd ~/project
+
+            # Tạo .env KHÔNG chứa mật khẩu; chỉ các biến không nhạy cảm
+            # (Bạn có thể bổ sung biến runtime của app ở đây)
+            cat > .env <<ENVEOF
+            DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;
+            JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567
+            ASPNETCORE_ENVIRONMENT=Production
+            VITE_API_URL=http://47.128.79.251:5193
+            ENVEOF
+
+            echo "Logging into Docker Hub on server..."
+            echo "Username: ${DOCKER_USER:-<empty>}"
+
+            # QUAN TRỌNG: dùng double-quote để expand biến môi trường
+            if echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin; then
+              echo "✅ Docker Hub login OK"
+
+              # Pull & restart
+              docker compose --env-file .env pull
+              docker compose --env-file .env down
+              docker compose --env-file .env up -d
+
+              # Không giữ login lâu trên server
+              docker logout || true
+              docker image prune -f || true
+              echo "✅ Deployment completed!"
+            else
+              echo "❌ Docker Hub login failed on server"
+              exit 1
+            fi
+            EOF
+
+            # Gán quyền chạy cho script
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "chmod +x ~/project/deploy.sh"
+
+            # Chạy script và CHỈ TRUYỀN secret qua ENV của tiến trình (không ghi ra file)
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes \
+              "$SSH_USER@$SERVER_HOST" "DOCKER_USER='$DOCKER_USER' DOCKER_PASS='$DOCKER_PASS' ~/project/deploy.sh"
           '''
         }
       }
