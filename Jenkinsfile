@@ -22,15 +22,34 @@ pipeline {
         stage('Backend') {
           steps {
             sh '''
-              echo "Building and testing .NET API..."
+              echo "Building .NET API..."
               docker run --rm -v $(pwd):/workspace -w /workspace \
                 mcr.microsoft.com/dotnet/sdk:9.0 \
-                bash -c "cd server && dotnet restore && dotnet test --logger trx --results-directory TestResults || true"
+                bash -c "
+                  cd server && 
+                  echo 'Restoring packages...' &&
+                  dotnet restore &&
+                  echo 'Building project...' &&
+                  dotnet build --configuration Release &&
+                  echo 'Checking for tests...' &&
+                  if find . -name '*Test*.csproj' -o -name '*Tests*.csproj' | grep -q .; then
+                    echo 'Running tests...' &&
+                    dotnet test --logger trx --results-directory TestResults --no-build
+                  else
+                    echo 'No test projects found, skipping tests'
+                  fi
+                "
             '''
           }
           post {
             always {
-              junit testResults: 'server/TestResults/*.trx'
+              script {
+                if (fileExists('server/TestResults')) {
+                  junit testResults: 'server/TestResults/*.trx'
+                } else {
+                  echo 'No test results found - project has no tests'
+                }
+              }
             }
           }
         }
@@ -38,10 +57,16 @@ pipeline {
         stage('Frontend') {
           steps {
             sh '''
-              echo "Building and testing React app..."
+              echo "Building React app..."
               docker run --rm -v $(pwd)/client:/app -w /app \
                 node:20-alpine \
-                sh -c "npm ci && npm run build || true"
+                sh -c "
+                  echo 'Installing dependencies...' &&
+                  npm ci --no-audit --no-fund &&
+                  echo 'Building application...' &&
+                  npm run build &&
+                  echo 'Frontend build completed successfully'
+                "
             '''
           }
         }
