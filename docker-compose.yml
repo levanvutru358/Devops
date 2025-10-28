@@ -3,31 +3,44 @@ version: "3.9"
 services:
   api:
     image: ${DOCKER_USERNAME}/webshop-api:latest
-    build:
-      context: ./server
-      dockerfile: Dockerfile
-    container_name: webshop-backend-net
+    container_name: emo-backend-api
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ASPNETCORE_URLS: http://+:8080
       ConnectionStrings__Default: ${DB_CONNECTION_STRING:-Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;}
       Jwt__Issuer: ${JWT_ISSUER:-EmoApi}
       Jwt__Audience: ${JWT_AUDIENCE:-EmoClient}
       Jwt__Secret: ${JWT_SECRET:-CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567}
     ports:
       - "5193:8080"
-    restart: always
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - emo-network
 
   client:
     image: ${DOCKER_USERNAME}/webshop-client:latest
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:5193}
-    container_name: webshop-client
+    container_name: emo-frontend-client
     depends_on:
       api:
-        condition: service_started
+        condition: service_healthy
     ports:
       - "5173:80"
-    restart: always
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - emo-network
+
+networks:
+  emo-network:
+    driver: bridge

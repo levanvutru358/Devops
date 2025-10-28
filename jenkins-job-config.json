@@ -1,0 +1,66 @@
+{
+  "job": {
+    "name": "EmoApp-CI-CD",
+    "description": "Full-stack CI/CD pipeline for EmoApp (.NET + React)",
+    "type": "pipeline",
+    "configuration": {
+      "pipeline": {
+        "script": "pipeline from SCM",
+        "scm": {
+          "type": "git",
+          "url": "https://github.com/levanvutru358/Devops.git",
+          "branch": "main",
+          "scriptPath": "Jenkinsfile"
+        }
+      },
+      "triggers": {
+        "githubPush": true,
+        "pollSCM": "H/5 * * * *"
+      },
+      "buildParameters": {
+        "string": [
+          {
+            "name": "DEPLOY_ENVIRONMENT",
+            "defaultValue": "production",
+            "description": "Deployment environment"
+          }
+        ]
+      }
+    },
+    "credentials": [
+      {
+        "id": "github-pat",
+        "type": "secret-text",
+        "description": "GitHub Personal Access Token"
+      },
+      {
+        "id": "dockerhub-cred",
+        "type": "username-password",
+        "description": "Docker Hub credentials"
+      },
+      {
+        "id": "db-conn",
+        "type": "secret-text",
+        "description": "Database connection string"
+      },
+      {
+        "id": "jwt-secret",
+        "type": "secret-text",
+        "description": "JWT signing secret"
+      },
+      {
+        "id": "server-ssh-key",
+        "type": "ssh-key",
+        "description": "SSH key for server deployment"
+      }
+    ],
+    "plugins": [
+      "docker-workflow",
+      "docker-plugin",
+      "ssh-agent",
+      "credentials-binding",
+      "htmlpublisher",
+      "junit"
+    ]
+  }
+}
