@@ -23,7 +23,7 @@ ENV ASPNETCORE_URLS=http://+:8080 \
     DOTNET_RUNNING_IN_CONTAINER=true \
     DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 COPY --from=build /app/publish ./
-# chọn đúng DLL theo runtimeconfig.json (tránh run nhầm thư viện)
-CMD app=$(ls *.runtimeconfig.json | head -n1); dll="${app%.runtimeconfig.json}.dll"; \
-    echo "Starting $dll"; exec dotnet "$dll"
+
+# Run the application
+CMD ["dotnet", "EmoApi.dll"]
 EXPOSE 8080
