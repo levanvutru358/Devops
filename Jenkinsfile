@@ -167,7 +167,7 @@ EOF
             cat deploy.sh | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/deploy.sh"
             
             echo "Running deployment script on server..."
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "chmod +x ~/project/deploy.sh && ~/project/deploy.sh"
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "chmod +x ~/project/deploy.sh && DOCKER_USER='$DOCKER_USER' DOCKER_PASS='$DOCKER_PASS' ~/project/deploy.sh"
             
             # Cleanup
             rm -f deploy.sh
