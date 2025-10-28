@@ -3,7 +3,7 @@ pipeline {
 
   environment {
     SERVER_HOST = "47.128.79.251"
-    SERVER_USER = "root"
+    SERVER_USER = "ubuntu"
   }
 
   stages {
