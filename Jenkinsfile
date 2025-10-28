@@ -2,8 +2,8 @@ pipeline {
   agent any
 
   environment {
-    REGISTRY   = "docker.io/${DOCKER_USER}"   // dùng cùng biến với creds
-    IMAGE_NAME = "server-lms-net"
+    REGISTRY    = "docker.io"
+    IMAGE_NAME  = "server-lms-net"
     SERVER_HOST = "47.128.79.251"
     SERVER_USER = "root"
   }
@@ -18,7 +18,7 @@ pipeline {
             credentialsId: 'github-pat'
           ]]
         ])
-        sh 'pwd && ls -la && test -f EmoApp.sln && echo "✅ Found EmoApp.sln"'
+        sh 'pwd && ls -la'
       }
     }
 
@@ -26,11 +26,10 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
           usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-
           sh '''
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-            # Build từ GỐC repo, chỉ định Dockerfile trong server/
-            docker build -t docker.io/$DOCKER_USER/$IMAGE_NAME:latest -f server/Dockerfile .
+            # Build using Dockerfile under server/ with server as build context
+            docker build -t docker.io/$DOCKER_USER/$IMAGE_NAME:latest -f server/Dockerfile server
           '''
         }
       }
@@ -40,7 +39,6 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
           usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-
           sh '''
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
             docker push docker.io/$DOCKER_USER/$IMAGE_NAME:latest
@@ -60,14 +58,14 @@ pipeline {
         ]) {
           sshagent (credentials: ['server-ssh-key']) {
             sh '''
-              # copy compose file lên server
+              # Copy docker-compose.yml to server
               scp -o StrictHostKeyChecking=no "$DOCKER_COMPOSE_PATH" $SERVER_USER@$SERVER_HOST:~/project/docker-compose.yml
 
-              # deploy
+              # Deploy on remote server
               ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "
                 cd ~/project && \
-                echo \\"DB_CONNECTION_STRING=$DB_CONN\\" > .env && \
-                echo \\"$DOCKER_PASS\\" | docker login -u $DOCKER_USER --password-stdin && \
+                echo \"DB_CONNECTION_STRING=$DB_CONN\" > .env && \
+                echo \"$DOCKER_PASS\" | docker login -u $DOCKER_USER --password-stdin && \
                 docker compose --env-file .env pull && \
                 docker compose --env-file .env down && \
                 docker compose --env-file .env up -d && \
@@ -80,3 +78,4 @@ pipeline {
     }
   }
 }
+
