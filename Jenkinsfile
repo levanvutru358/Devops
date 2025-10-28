@@ -23,16 +23,19 @@ pipeline {
     }
 
     stage('Docker Build') {
-      steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
-          usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sh '''
-            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-            # Build using Dockerfile under server/ with server as build context
-            docker build -t docker.io/$DOCKER_USER/$IMAGE_NAME:latest -f server/Dockerfile server
-          '''
+        steps {
+            dir('server') {
+            withCredentials([usernamePassword(credentialsId: 'dockerhub-cred',
+                usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+
+                sh '''
+                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                # Dockerfile = ./Dockerfile , context = .. (gốc repo có EmoApp.sln)
+                docker build -t docker.io/$DOCKER_USER/$IMAGE_NAME:latest -f Dockerfile ..
+                '''
+            }
+            }
         }
-      }
     }
 
     stage('Push Docker Hub') {
