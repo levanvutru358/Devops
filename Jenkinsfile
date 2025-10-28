@@ -152,17 +152,15 @@ fi
 EOF
             
             echo "Copying files to server..."
-            # Try different methods to copy files
-            if command -v rsync >/dev/null 2>&1; then
-              echo "Using rsync..."
-              rsync -avz -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o LogLevel=ERROR" docker-compose.yml deploy.sh $SSH_USER@$SERVER_HOST:~/project/
-            else
-              echo "Using scp with alternative method..."
-              # Create a simple copy method
-              ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "mkdir -p ~/project"
-              cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/docker-compose.yml"
-              cat deploy.sh | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/deploy.sh"
-            fi
+            # Create project directory first
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "mkdir -p ~/project"
+            
+            echo "Using SSH pipe method to avoid shell issues..."
+            # Copy docker-compose.yml
+            cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/docker-compose.yml"
+            
+            # Copy deployment script
+            cat deploy.sh | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "cat > ~/project/deploy.sh"
             
             echo "Running deployment script on server..."
             ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes $SSH_USER@$SERVER_HOST "chmod +x ~/project/deploy.sh && ~/project/deploy.sh"
