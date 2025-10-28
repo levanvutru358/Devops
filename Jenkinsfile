@@ -2,8 +2,6 @@ pipeline {
   agent any
 
   environment {
-    DOCKER_USER = credentials('dockerhub-cred').username
-    DOCKER_PASS = credentials('dockerhub-cred').password
     SERVER_HOST = "47.128.79.251"
     SERVER_USER = "root"
   }
@@ -32,7 +30,7 @@ pipeline {
           }
           post {
             always {
-              junit testResultsPattern: 'server/TestResults/*.trx'
+              junit testResults: 'server/TestResults/*.trx'
             }
           }
         }
@@ -52,52 +50,58 @@ pipeline {
 
     stage('Build Images') {
       steps {
-        sh '''
-          echo "Building Docker images..."
-          docker build -t $DOCKER_USER/webshop-api:$BUILD_NUMBER -f server/Dockerfile .
-          docker build -t $DOCKER_USER/webshop-client:$BUILD_NUMBER --build-arg VITE_API_URL=http://$SERVER_HOST:5193 -f client/Dockerfile client/
-          
-          docker tag $DOCKER_USER/webshop-api:$BUILD_NUMBER $DOCKER_USER/webshop-api:latest
-          docker tag $DOCKER_USER/webshop-client:$BUILD_NUMBER $DOCKER_USER/webshop-client:latest
-        '''
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh '''
+            echo "Building Docker images..."
+            docker build -t $DOCKER_USER/webshop-api:$BUILD_NUMBER -f server/Dockerfile .
+            docker build -t $DOCKER_USER/webshop-client:$BUILD_NUMBER --build-arg VITE_API_URL=http://$SERVER_HOST:5193 -f client/Dockerfile client/
+            
+            docker tag $DOCKER_USER/webshop-api:$BUILD_NUMBER $DOCKER_USER/webshop-api:latest
+            docker tag $DOCKER_USER/webshop-client:$BUILD_NUMBER $DOCKER_USER/webshop-client:latest
+          '''
+        }
       }
     }
 
     stage('Push Images') {
       steps {
-        sh '''
-          echo "Pushing to Docker Hub..."
-          echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-          docker push $DOCKER_USER/webshop-api:$BUILD_NUMBER
-          docker push $DOCKER_USER/webshop-api:latest
-          docker push $DOCKER_USER/webshop-client:$BUILD_NUMBER
-          docker push $DOCKER_USER/webshop-client:latest
-          docker logout
-        '''
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sh '''
+            echo "Pushing to Docker Hub..."
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+            docker push $DOCKER_USER/webshop-api:$BUILD_NUMBER
+            docker push $DOCKER_USER/webshop-api:latest
+            docker push $DOCKER_USER/webshop-client:$BUILD_NUMBER
+            docker push $DOCKER_USER/webshop-client:latest
+            docker logout
+          '''
+        }
       }
     }
 
     stage('Deploy') {
       steps {
-        sshagent(['server-ssh-key']) {
-          sh '''
-            echo "Deploying to server..."
-            scp -o StrictHostKeyChecking=no docker-compose.yml $SERVER_USER@$SERVER_HOST:~/project/
-            
-            ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "
-              cd ~/project &&
-              echo 'DOCKER_USERNAME=$DOCKER_USER' > .env &&
-              echo 'DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;' >> .env &&
-              echo 'JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567' >> .env &&
-              echo 'ASPNETCORE_ENVIRONMENT=Production' >> .env &&
-              echo 'VITE_API_URL=http://$SERVER_HOST:5193' >> .env &&
-              echo '$DOCKER_PASS' | docker login -u $DOCKER_USER --password-stdin &&
-              docker compose --env-file .env pull &&
-              docker compose --env-file .env down &&
-              docker compose --env-file .env up -d &&
-              docker image prune -f
-            "
-          '''
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
+          sshagent(['server-ssh-key']) {
+            sh '''
+              echo "Deploying to server..."
+              scp -o StrictHostKeyChecking=no docker-compose.yml $SERVER_USER@$SERVER_HOST:~/project/
+              
+              ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "
+                cd ~/project &&
+                echo 'DOCKER_USERNAME=$DOCKER_USER' > .env &&
+                echo 'DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;' >> .env &&
+                echo 'JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567' >> .env &&
+                echo 'ASPNETCORE_ENVIRONMENT=Production' >> .env &&
+                echo 'VITE_API_URL=http://$SERVER_HOST:5193' >> .env &&
+                echo '$DOCKER_PASS' | docker login -u $DOCKER_USER --password-stdin &&
+                docker compose --env-file .env pull &&
+                docker compose --env-file .env down &&
+                docker compose --env-file .env up -d &&
+                docker image prune -f
+              "
+            '''
+          }
         }
       }
     }
