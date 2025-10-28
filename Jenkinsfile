@@ -22,18 +22,18 @@ pipeline {
         stage('Backend') {
           steps {
             sh '''
-              echo "Building .NET API..."
+              echo "=== Building .NET API ==="
               docker run --rm -v $(pwd):/workspace -w /workspace \
                 mcr.microsoft.com/dotnet/sdk:9.0 \
                 bash -c "
                   cd server && 
-                  echo 'Restoring packages...' &&
+                  echo 'Step 1: Restoring packages...' &&
                   dotnet restore &&
-                  echo 'Building project...' &&
+                  echo 'Step 2: Building project...' &&
                   dotnet build --configuration Release &&
-                  echo 'Checking for tests...' &&
+                  echo 'Step 3: Checking for tests...' &&
                   if find . -name '*Test*.csproj' -o -name '*Tests*.csproj' | grep -q .; then
-                    echo 'Running tests...' &&
+                    echo 'Found test projects, running tests...' &&
                     dotnet test --logger trx --results-directory TestResults --no-build
                   else
                     echo 'No test projects found, skipping tests'
@@ -45,9 +45,10 @@ pipeline {
             always {
               script {
                 if (fileExists('server/TestResults')) {
+                  echo 'Publishing test results...'
                   junit testResults: 'server/TestResults/*.trx'
                 } else {
-                  echo 'No test results found - project has no tests'
+                  echo 'No test results found - project has no tests (this is OK)'
                 }
               }
             }
@@ -57,15 +58,15 @@ pipeline {
         stage('Frontend') {
           steps {
             sh '''
-              echo "Building React app..."
+              echo "=== Building React App ==="
               docker run --rm -v $(pwd)/client:/app -w /app \
                 node:20-alpine \
                 sh -c "
-                  echo 'Installing dependencies...' &&
+                  echo 'Step 1: Installing dependencies...' &&
                   npm ci --no-audit --no-fund &&
-                  echo 'Building application...' &&
+                  echo 'Step 2: Building application...' &&
                   npm run build &&
-                  echo 'Frontend build completed successfully'
+                  echo 'Frontend build completed successfully!'
                 "
             '''
           }
@@ -77,12 +78,13 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
-            echo "Building Docker images..."
+            echo "=== Building Docker Images ==="
             docker build -t $DOCKER_USER/webshop-api:$BUILD_NUMBER -f server/Dockerfile .
             docker build -t $DOCKER_USER/webshop-client:$BUILD_NUMBER --build-arg VITE_API_URL=http://$SERVER_HOST:5193 -f client/Dockerfile client/
             
             docker tag $DOCKER_USER/webshop-api:$BUILD_NUMBER $DOCKER_USER/webshop-api:latest
             docker tag $DOCKER_USER/webshop-client:$BUILD_NUMBER $DOCKER_USER/webshop-client:latest
+            echo "Docker images built successfully!"
           '''
         }
       }
@@ -92,13 +94,14 @@ pipeline {
       steps {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sh '''
-            echo "Pushing to Docker Hub..."
+            echo "=== Pushing to Docker Hub ==="
             echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
             docker push $DOCKER_USER/webshop-api:$BUILD_NUMBER
             docker push $DOCKER_USER/webshop-api:latest
             docker push $DOCKER_USER/webshop-client:$BUILD_NUMBER
             docker push $DOCKER_USER/webshop-client:latest
             docker logout
+            echo "Images pushed successfully!"
           '''
         }
       }
@@ -109,7 +112,7 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
           sshagent(['server-ssh-key']) {
             sh '''
-              echo "Deploying to server..."
+              echo "=== Deploying to Server ==="
               scp -o StrictHostKeyChecking=no docker-compose.yml $SERVER_USER@$SERVER_HOST:~/project/
               
               ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "
@@ -123,7 +126,8 @@ pipeline {
                 docker compose --env-file .env pull &&
                 docker compose --env-file .env down &&
                 docker compose --env-file .env up -d &&
-                docker image prune -f
+                docker image prune -f &&
+                echo 'Deployment completed successfully!'
               "
             '''
           }
@@ -134,10 +138,13 @@ pipeline {
     stage('Health Check') {
       steps {
         sh '''
-          echo "Checking services..."
+          echo "=== Health Check ==="
+          echo "Waiting for services to start..."
           sleep 30
-          curl -f http://$SERVER_HOST:5193/health || echo "API check failed"
-          curl -f http://$SERVER_HOST:5173 || echo "Client check failed"
+          echo "Checking API health..."
+          curl -f http://$SERVER_HOST:5193/health || echo "API health check failed"
+          echo "Checking Client..."
+          curl -f http://$SERVER_HOST:5173 || echo "Client health check failed"
         '''
       }
     }
