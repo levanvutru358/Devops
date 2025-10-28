@@ -121,34 +121,37 @@ pipeline {
 
     stage('Deploy') {
       steps {
-        withCredentials([usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-          sshagent(['server-ssh-key']) {
-            sh '''
-              echo "=== Deploying to Server ==="
-              scp -o StrictHostKeyChecking=no docker-compose.yml $SERVER_USER@$SERVER_HOST:~/project/
-              
-              ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_HOST "
-                cd ~/project &&
-                echo 'DOCKER_USERNAME=$DOCKER_USER' > .env &&
-                echo 'DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;' >> .env &&
-                echo 'JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567' >> .env &&
-                echo 'ASPNETCORE_ENVIRONMENT=Production' >> .env &&
-                echo 'VITE_API_URL=http://$SERVER_HOST:5193' >> .env &&
-                echo 'Logging into Docker Hub on server...' &&
-                if echo '$DOCKER_PASS' | docker login -u $DOCKER_USER --password-stdin; then
-                  echo 'Docker Hub login successful on server' &&
-                  docker compose --env-file .env pull &&
-                  docker compose --env-file .env down &&
-                  docker compose --env-file .env up -d &&
-                  docker image prune -f &&
-                  echo 'Deployment completed successfully!'
-                else
-                  echo 'Docker Hub login failed on server' &&
-                  exit 1
-                fi
-              "
-            '''
-          }
+        withCredentials([
+          usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS'),
+          sshUserPrivateKey(credentialsId: 'server-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+        ]) {
+          sh '''
+            echo "=== Deploying to Server ==="
+            echo "Copying docker-compose.yml to server..."
+            scp -i "$SSH_KEY" -o StrictHostKeyChecking=no docker-compose.yml $SSH_USER@$SERVER_HOST:~/project/
+            
+            echo "Deploying on server..."
+            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no $SSH_USER@$SERVER_HOST "
+              cd ~/project &&
+              echo 'DOCKER_USERNAME=$DOCKER_USER' > .env &&
+              echo 'DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;' >> .env &&
+              echo 'JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567' >> .env &&
+              echo 'ASPNETCORE_ENVIRONMENT=Production' >> .env &&
+              echo 'VITE_API_URL=http://$SERVER_HOST:5193' >> .env &&
+              echo 'Logging into Docker Hub on server...' &&
+              if echo '$DOCKER_PASS' | docker login -u $DOCKER_USER --password-stdin; then
+                echo 'Docker Hub login successful on server' &&
+                docker compose --env-file .env pull &&
+                docker compose --env-file .env down &&
+                docker compose --env-file .env up -d &&
+                docker image prune -f &&
+                echo 'Deployment completed successfully!'
+              else
+                echo 'Docker Hub login failed on server' &&
+                exit 1
+              fi
+            "
+          '''
         }
       }
     }
