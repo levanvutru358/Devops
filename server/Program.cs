@@ -83,10 +83,21 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// MySQL connection string & ensure database (with simple retry to avoid race on startup)
+// MySQL connection string & ensure database (run in background to avoid startup crash)
 var connString = builder.Configuration.GetConnectionString("Default");
-await WaitForDatabaseAsync(connString, TimeSpan.FromSeconds(60));
-await EnsureDatabaseAsync(connString);
+_ = Task.Run(async () =>
+{
+    try
+    {
+        await WaitForDatabaseAsync(connString, TimeSpan.FromSeconds(60));
+        await EnsureDatabaseAsync(connString);
+        Console.WriteLine("[Startup] Database ready.");
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[Startup] Database init failed: {ex.Message}");
+    }
+});
 
 app.Run();
 
