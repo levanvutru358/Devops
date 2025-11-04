@@ -86,21 +86,18 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// MySQL connection string & ensure database (run in background to avoid startup crash)
+// MySQL connection string & ensure database (wait then create schema)
 var connString = builder.Configuration.GetConnectionString("Default");
-_ = Task.Run(async () =>
+try
 {
-    try
-    {
-        await WaitForDatabaseAsync(connString, TimeSpan.FromSeconds(60));
-        await EnsureDatabaseAsync(connString);
-        Console.WriteLine("[Startup] Database ready.");
-    }
-    catch (Exception ex)
-    {
-        Console.Error.WriteLine($"[Startup] Database init failed: {ex.Message}");
-    }
-});
+    await WaitForDatabaseAsync(connString, TimeSpan.FromSeconds(120));
+    await EnsureDatabaseAsync(connString);
+    Console.WriteLine("[Startup] Database ready.");
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[Startup] Database init failed: {ex.Message}");
+}
 
 app.Run();
 
