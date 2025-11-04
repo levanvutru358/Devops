@@ -185,8 +185,16 @@ static async Task EnsureDatabaseAsync(string? connString)
         FOREIGN KEY (product_id) REFERENCES products(id)
             ON UPDATE CASCADE ON DELETE RESTRICT
     ) ENGINE=InnoDB;";
-    await using var cmd = new MySqlCommand(createSql, initConn);
-    await cmd.ExecuteNonQueryAsync();
+
+    var parts = createSql.Split(new[] { ";\r\n", ";\n" }, StringSplitOptions.RemoveEmptyEntries);
+    foreach (var stmt in parts)
+    {
+        var sql = stmt.Trim();
+        if (sql.Length == 0) continue;
+        if (!sql.EndsWith(";")) sql += ";";
+        await using var cmd = new MySqlCommand(sql, initConn);
+        await cmd.ExecuteNonQueryAsync();
+    }
 }
 
 static async Task WaitForDatabaseAsync(string? connString, TimeSpan timeout)
