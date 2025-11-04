@@ -23,7 +23,6 @@ pipeline {
     stage('Checkout') {
       steps {
         script {
-          deleteDir()
           git branch: params.GIT_BRANCH, credentialsId: 'github-pat', url: params.REPO_URL
         }
         sh 'git rev-parse --short HEAD > commit.txt'
@@ -33,13 +32,26 @@ pipeline {
       }
     }
 
+    stage('Cleanup Workspace') {
+      steps {
+        sh '''
+          echo "=== Pre-clean workspace artifacts (root-in-container) ==="
+          docker run --rm -v $(pwd):/ws -w /ws alpine:3 \
+            sh -c "rm -rf server/bin server/obj client/node_modules client/dist || true"
+        '''
+      }
+    }
+
     stage('Build & Test') {
       parallel {
         stage('Backend') {
           steps {
             sh '''
               echo "=== Building .NET API ==="
-              docker run --rm -v $(pwd):/workspace -w /workspace \
+              docker run --rm \
+                -u $(id -u):$(id -g) \
+                -e DOTNET_CLI_HOME=/tmp -e NUGET_PACKAGES=/tmp/.nuget -e HOME=/tmp \
+                -v $(pwd):/workspace -w /workspace \
                 mcr.microsoft.com/dotnet/sdk:9.0 \
                 bash -c "
                   cd server && 
@@ -75,7 +87,10 @@ pipeline {
           steps {
             sh '''
               echo "=== Building React App ==="
-              docker run --rm -v $(pwd)/client:/app -w /app \
+              docker run --rm \
+                -u $(id -u):$(id -g) \
+                -e npm_config_cache=/tmp/.npm \
+                -v $(pwd)/client:/app -w /app \
                 node:20-alpine \
                 sh -c "
                   echo 'Step 1: Installing dependencies...' &&
