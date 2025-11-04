@@ -78,8 +78,9 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// MySQL connection string & ensure database
+// MySQL connection string & ensure database (with simple retry to avoid race on startup)
 var connString = builder.Configuration.GetConnectionString("Default");
+await WaitForDatabaseAsync(connString, TimeSpan.FromSeconds(60));
 await EnsureDatabaseAsync(connString);
 
 app.Run();
@@ -170,4 +171,27 @@ static async Task EnsureDatabaseAsync(string? connString)
     ) ENGINE=InnoDB;";
     await using var cmd = new MySqlCommand(createSql, initConn);
     await cmd.ExecuteNonQueryAsync();
+}
+
+static async Task WaitForDatabaseAsync(string? connString, TimeSpan timeout)
+{
+    if (string.IsNullOrWhiteSpace(connString)) return;
+    var started = DateTime.UtcNow;
+    Exception? last = null;
+    while (DateTime.UtcNow - started < timeout)
+    {
+        try
+        {
+            await using var c = new MySqlConnection(connString);
+            await c.OpenAsync();
+            await c.CloseAsync();
+            return;
+        }
+        catch (Exception ex)
+        {
+            last = ex;
+            await Task.Delay(TimeSpan.FromSeconds(2));
+        }
+    }
+    Console.Error.WriteLine($"[Startup] Could not connect to DB within {timeout.TotalSeconds}s: {last?.Message}");
 }

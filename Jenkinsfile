@@ -13,7 +13,7 @@ pipeline {
     string(name: 'SSH_PORT', defaultValue: '22', description: 'SSH port on target server')
     string(name: 'API_PORT', defaultValue: '5193', description: 'Public API port on server')
     string(name: 'CLIENT_PORT', defaultValue: '5173', description: 'Public Client port on server')
-    booleanParam(name: 'USE_COMPOSE_CRED', defaultValue: true, description: 'Use docker-compose.yml from Jenkins Credentials')
+    booleanParam(name: 'USE_COMPOSE_CRED', defaultValue: false, description: 'Use docker-compose.yml from Jenkins Credentials')
     string(name: 'COMPOSE_CRED_ID', defaultValue: 'docker-compose', description: 'Credentials ID (Secret file) containing docker-compose.yml')
   }
 
@@ -246,7 +246,13 @@ pipeline {
               # Pull & restart
               dcompose --env-file .env pull
               dcompose --env-file .env down
-              dcompose --env-file .env up -d --remove-orphans
+              # Try to wait for healthy if supported; fallback to normal up
+              if dcompose up -d --remove-orphans --help | grep -q -- '--wait'; then
+                echo "Compose supports --wait; using it"
+                dcompose --env-file .env up -d --remove-orphans --wait --wait-timeout 120 || true
+              else
+                dcompose --env-file .env up -d --remove-orphans
+              fi
 
               # Housekeeping
               docker logout || true
