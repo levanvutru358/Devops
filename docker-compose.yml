@@ -36,7 +36,7 @@ services:
       Jwt__Audience: ${JWT_AUDIENCE:-EmoClient}
       Jwt__Secret: ${JWT_SECRET:-CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567}
     ports:
-      - "5193:8080"
+      - "${API_PORT:-5193}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
@@ -54,7 +54,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "5173:80"
+      - "${CLIENT_PORT:-5173}:80"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:80"]

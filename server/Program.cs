@@ -18,7 +18,8 @@ var allowedOrigins = new[]
     "https://localhost:5173",
     "http://localhost:3000",
     "https://localhost:3000",
-    "http://47.128.79.251:5173"
+    "http://47.128.79.251:5173",
+    "http://18.143.155.245:5173"
 };
 
 builder.Services.AddCors(options =>

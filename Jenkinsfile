@@ -8,8 +8,11 @@ pipeline {
   parameters {
     string(name: 'REPO_URL', defaultValue: 'https://github.com/levanvutru358/Devops.git', description: 'Git repository URL')
     string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to build')
-    string(name: 'SERVER_HOST', defaultValue: '47.128.79.251', description: 'Target server IP or hostname')
+    string(name: 'SERVER_HOST', defaultValue: '18.143.155.245', description: 'Target server IP or hostname')
     string(name: 'SERVER_USER', defaultValue: 'ubuntu', description: 'SSH username on target server')
+    string(name: 'SSH_PORT', defaultValue: '22', description: 'SSH port on target server')
+    string(name: 'API_PORT', defaultValue: '8080', description: 'Public API port on server')
+    string(name: 'CLIENT_PORT', defaultValue: '5173', description: 'Public Client port on server')
     booleanParam(name: 'USE_COMPOSE_CRED', defaultValue: true, description: 'Use docker-compose.yml from Jenkins Credentials')
     string(name: 'COMPOSE_CRED_ID', defaultValue: 'docker-compose', description: 'Credentials ID (Secret file) containing docker-compose.yml')
   }
@@ -17,6 +20,9 @@ pipeline {
   environment {
     SERVER_HOST = "${params.SERVER_HOST}"
     SERVER_USER = "${params.SERVER_USER}"
+    SSH_PORT    = "${params.SSH_PORT}"
+    API_PORT    = "${params.API_PORT}"
+    CLIENT_PORT = "${params.CLIENT_PORT}"
   }
 
   stages {
@@ -39,6 +45,30 @@ pipeline {
           docker run --rm -v $(pwd):/ws -w /ws alpine:3 \
             sh -c "rm -rf server/bin server/obj client/node_modules client/dist || true"
         '''
+      }
+    }
+
+    stage('Preflight SSH') {
+      steps {
+        withCredentials([sshUserPrivateKey(credentialsId: 'server-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
+          sh '''
+            echo "=== Verifying SSH connectivity ==="
+            echo "Host: $SERVER_HOST  Port: $SSH_PORT  User: $SSH_USER"
+            # Try up to 3 times, fail fast with 10s timeout each
+            i=0
+            until [ $i -ge 3 ]; do
+              if ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "echo ok"; then
+                echo "SSH connectivity OK"
+                exit 0
+              fi
+              i=$((i+1))
+              echo "SSH attempt $i failed; retrying in 5s..."
+              sleep 5
+            done
+            echo "ERROR: Cannot reach $SERVER_HOST:$SSH_PORT via SSH. Check server IP, firewall, or security group."
+            exit 1
+          '''
+        }
       }
     }
 
@@ -111,7 +141,7 @@ pipeline {
           sh '''
             echo "=== Building Docker Images ==="
             docker build -t $DOCKER_USER/webshop-api:$BUILD_NUMBER -f server/Dockerfile .
-            docker build -t $DOCKER_USER/webshop-client:$BUILD_NUMBER --build-arg VITE_API_URL=http://$SERVER_HOST:5193 -f client/Dockerfile client/
+            docker build -t $DOCKER_USER/webshop-client:$BUILD_NUMBER --build-arg VITE_API_URL=http://$SERVER_HOST:$API_PORT -f client/Dockerfile client/
 
             docker tag $DOCKER_USER/webshop-api:$BUILD_NUMBER $DOCKER_USER/webshop-api:latest
             docker tag $DOCKER_USER/webshop-client:$BUILD_NUMBER $DOCKER_USER/webshop-client:latest
@@ -163,22 +193,22 @@ pipeline {
             echo "=== Deploying to Server ==="
 
             # Prepare project directory on server
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "mkdir -p ~/project"
+            ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "mkdir -p ~/project"
           '''
 
           script {
             if (params.USE_COMPOSE_CRED) {
               withCredentials([file(credentialsId: params.COMPOSE_CRED_ID, variable: 'COMPOSE_FILE')]) {
-                sh 'cat "$COMPOSE_FILE" | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"'
+                sh 'cat "$COMPOSE_FILE" | ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"'
               }
             } else {
-              sh 'cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"'
+              sh 'cat docker-compose.yml | ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"'
             }
           }
 
           sh '''
             # Create deploy.sh on server
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/deploy.sh" <<'EOF'
+            ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/deploy.sh" <<'EOF'
             #!/usr/bin/env bash
             set -euo pipefail
 
@@ -202,7 +232,9 @@ pipeline {
             DB_CONNECTION_STRING=${DB_CONNECTION_STRING:-Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;}
             JWT_SECRET=${JWT_SECRET:-CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567}
             ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
-            VITE_API_URL=http://$SERVER_HOST:5193
+            API_PORT=${API_PORT:-5193}
+            CLIENT_PORT=${CLIENT_PORT:-5173}
+            VITE_API_URL=http://$SERVER_HOST:${API_PORT}
             ENVEOF
 
             echo "Logging into Docker Hub on server..."
@@ -227,13 +259,14 @@ pipeline {
             EOF
 
             # Make script executable
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "chmod +x ~/project/deploy.sh"
+            ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "chmod +x ~/project/deploy.sh"
 
             # Run deploy script, passing secrets via env (DB + JWT come from Jenkins credentials)
-            ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes \
+            ssh -i "$SSH_KEY" -p "$SSH_PORT" -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes \
               "$SSH_USER@$SERVER_HOST" \
               "SERVER_HOST='$SERVER_HOST' DOCKER_USER='$DOCKER_USER' DOCKER_PASS='$DOCKER_PASS' \
                DB_CONNECTION_STRING='${DB_CONN}' JWT_SECRET='${JWT_SECRET}' ASPNETCORE_ENVIRONMENT='Production' \
+               API_PORT='${API_PORT}' CLIENT_PORT='${CLIENT_PORT}' \
                ~/project/deploy.sh"
           '''
         }
@@ -247,9 +280,9 @@ pipeline {
           echo "Waiting for services to start..."
           sleep 30
           echo "Checking API health..."
-          curl -f http://$SERVER_HOST:5193/health || echo "API health check failed"
+          curl -f http://$SERVER_HOST:$API_PORT/health || echo "API health check failed"
           echo "Checking Client..."
-          curl -f http://$SERVER_HOST:5173 || echo "Client health check failed"
+          curl -f http://$SERVER_HOST:$CLIENT_PORT || echo "Client health check failed"
         '''
       }
     }
@@ -261,8 +294,8 @@ pipeline {
     }
     success {
       echo "Deployment successful!"
-      echo "API: http://$SERVER_HOST:5193"
-      echo "Client: http://$SERVER_HOST:5173"
+      echo "API: http://$SERVER_HOST:$API_PORT"
+      echo "Client: http://$SERVER_HOST:$CLIENT_PORT"
     }
     failure {
       echo "Deployment failed!"
