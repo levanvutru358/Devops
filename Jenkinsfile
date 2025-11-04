@@ -6,8 +6,12 @@ pipeline {
   }
 
   parameters {
+    string(name: 'REPO_URL', defaultValue: 'https://github.com/levanvutru358/Devops.git', description: 'Git repository URL')
+    string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to build')
     string(name: 'SERVER_HOST', defaultValue: '47.128.79.251', description: 'Target server IP or hostname')
     string(name: 'SERVER_USER', defaultValue: 'ubuntu', description: 'SSH username on target server')
+    booleanParam(name: 'USE_COMPOSE_CRED', defaultValue: true, description: 'Use docker-compose.yml from Jenkins Credentials')
+    string(name: 'COMPOSE_CRED_ID', defaultValue: 'docker-compose', description: 'Credentials ID (Secret file) containing docker-compose.yml')
   }
 
   environment {
@@ -18,7 +22,10 @@ pipeline {
   stages {
     stage('Checkout') {
       steps {
-        checkout scm
+        script {
+          deleteDir()
+          git branch: params.GIT_BRANCH, credentialsId: 'github-pat', url: params.REPO_URL
+        }
         sh 'git rev-parse --short HEAD > commit.txt'
         script {
           env.GIT_COMMIT_SHORT = readFile('commit.txt').trim()
@@ -132,7 +139,9 @@ pipeline {
       steps {
         withCredentials([
           usernamePassword(credentialsId: 'dockerhub-cred', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS'),
-          sshUserPrivateKey(credentialsId: 'server-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+          sshUserPrivateKey(credentialsId: 'server-ssh-key', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER'),
+          string(credentialsId: 'db-conn', variable: 'DB_CONN'),
+          string(credentialsId: 'jwt-secret', variable: 'JWT_SECRET')
         ]) {
           sh '''
             set -e
@@ -140,10 +149,19 @@ pipeline {
 
             # Prepare project directory on server
             ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "mkdir -p ~/project"
+          '''
 
-            # Copy docker-compose.yml
-            cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"
+          script {
+            if (params.USE_COMPOSE_CRED) {
+              withCredentials([file(credentialsId: params.COMPOSE_CRED_ID, variable: 'COMPOSE_FILE')]) {
+                sh 'cat "$COMPOSE_FILE" | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"'
+              }
+            } else {
+              sh 'cat docker-compose.yml | ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/docker-compose.yml"'
+            }
+          }
 
+          sh '''
             # Create deploy.sh on server
             ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "cat > ~/project/deploy.sh" <<'EOF'
             #!/usr/bin/env bash
@@ -163,12 +181,12 @@ pipeline {
               fi
             }
 
-            # Build .env (variables expanded at runtime on server)
+            # Build .env (values can be overridden via env when invoking this script)
             cat > .env <<ENVEOF
             DOCKER_USERNAME=$DOCKER_USER
-            DB_CONNECTION_STRING=Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;
-            JWT_SECRET=CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567
-            ASPNETCORE_ENVIRONMENT=Production
+            DB_CONNECTION_STRING=${DB_CONNECTION_STRING:-Server=db;Port=3306;Database=emo_db;User Id=tru123;Password=tru12345;SslMode=None;}
+            JWT_SECRET=${JWT_SECRET:-CHANGE_ME_SUPER_SECRET_MIN_32_CHARS_1234567}
+            ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
             VITE_API_URL=http://$SERVER_HOST:5193
             ENVEOF
 
@@ -196,9 +214,12 @@ pipeline {
             # Make script executable
             ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes "$SSH_USER@$SERVER_HOST" "chmod +x ~/project/deploy.sh"
 
-            # Run deploy script, passing secrets via env
+            # Run deploy script, passing secrets via env (DB + JWT come from Jenkins credentials)
             ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no -o LogLevel=ERROR -o BatchMode=yes \
-              "$SSH_USER@$SERVER_HOST" "SERVER_HOST='$SERVER_HOST' DOCKER_USER='$DOCKER_USER' DOCKER_PASS='$DOCKER_PASS' ~/project/deploy.sh"
+              "$SSH_USER@$SERVER_HOST" \
+              "SERVER_HOST='$SERVER_HOST' DOCKER_USER='$DOCKER_USER' DOCKER_PASS='$DOCKER_PASS' \
+               DB_CONNECTION_STRING='${DB_CONN}' JWT_SECRET='${JWT_SECRET}' ASPNETCORE_ENVIRONMENT='Production' \
+               ~/project/deploy.sh"
           '''
         }
       }
