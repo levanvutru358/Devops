@@ -74,6 +74,9 @@ if (enableHttpsRedirect)
     app.UseHttpsRedirection();
 }
 
+// Ensure proper order for CORS with endpoint routing
+app.UseRouting();
+
 // Enable CORS
 app.UseCors("FrontendDev");
 
