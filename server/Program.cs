@@ -67,7 +67,12 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference(options => { options.Title = "Emo API"; });
 }
 
-app.UseHttpsRedirection();
+// In containers we usually terminate TLS at proxy; disable redirect by default
+var enableHttpsRedirect = builder.Configuration.GetValue<bool>("EnableHttpsRedirect", false);
+if (enableHttpsRedirect)
+{
+    app.UseHttpsRedirection();
+}
 
 // Enable CORS
 app.UseCors("FrontendDev");
