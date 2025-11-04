@@ -11,7 +11,7 @@ pipeline {
     string(name: 'SERVER_HOST', defaultValue: '18.143.155.245', description: 'Target server IP or hostname')
     string(name: 'SERVER_USER', defaultValue: 'ubuntu', description: 'SSH username on target server')
     string(name: 'SSH_PORT', defaultValue: '22', description: 'SSH port on target server')
-    string(name: 'API_PORT', defaultValue: '8080', description: 'Public API port on server')
+    string(name: 'API_PORT', defaultValue: '5193', description: 'Public API port on server')
     string(name: 'CLIENT_PORT', defaultValue: '5173', description: 'Public Client port on server')
     booleanParam(name: 'USE_COMPOSE_CRED', defaultValue: true, description: 'Use docker-compose.yml from Jenkins Credentials')
     string(name: 'COMPOSE_CRED_ID', defaultValue: 'docker-compose', description: 'Credentials ID (Secret file) containing docker-compose.yml')
